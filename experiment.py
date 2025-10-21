@@ -142,7 +142,7 @@ def test_large_files_s3(bucket_name='test-bucket', num_files=10, size_gb=1, temp
 
 
 def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir='/tmp/local_test'):
-    """Test writing large files in parallel"""
+    """Test writing large files in parallel with separate directory per thread"""
     print(f"\n=== Testing Large Files: {num_files} files x {size_gb}GB ===")
 
     # Step 1: Pre-create files on local disk (NOT timed)
@@ -158,17 +158,22 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
 
     print("Files created. Starting copy test...")
 
-    # Step 2: Create output directory
+    # Step 2: Create output directory and subdirectories for each thread
     os.makedirs(output_dir, exist_ok=True)
+    target_dirs = []
+    for i in range(num_files):
+        thread_dir = os.path.join(output_dir, f'thread_{i}')
+        os.makedirs(thread_dir, exist_ok=True)
+        target_dirs.append(thread_dir)
 
-    # Step 3: Copy files to target location in parallel (TIMED)
+    # Step 3: Copy files to separate directories in parallel (TIMED)
     start_time = time.time()
 
     with ThreadPoolExecutor(max_workers=num_files) as executor:
         futures = []
         for i in range(num_files):
             src_path = source_files[i]
-            dst_path = os.path.join(output_dir, f'large_file_{i}.dat')
+            dst_path = os.path.join(target_dirs[i], f'large_file_{i}.dat')
             futures.append(executor.submit(copy_file, src_path, dst_path, 10))
 
         for future in as_completed(futures):
@@ -182,11 +187,15 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
     print(f"Total data written: {total_gb} GB")
     print(f"Write speed: {speed:.2f} GB/s ({speed * 1024:.2f} MB/s)")
 
-    # Step 4: Cleanup target files
+    # Step 4: Cleanup target files and directories
     print("Cleaning up target files...")
     for i in range(num_files):
         try:
-            os.remove(os.path.join(output_dir, f'large_file_{i}.dat'))
+            os.remove(os.path.join(target_dirs[i], f'large_file_{i}.dat'))
+        except:
+            pass
+        try:
+            os.rmdir(target_dirs[i])
         except:
             pass
 
@@ -210,7 +219,7 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
 
 
 def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=50, size_mb=1, temp_dir='/tmp/small_test'):
-    """Test writing many small files with limited parallelism"""
+    """Test writing many small files with limited parallelism and separate directory per thread"""
     print(f"\n=== Testing Small Files: {total_files} files x {size_mb}MB ({parallel_writes} parallel) ===")
 
     # Step 1: Pre-create files on local disk (NOT timed)
@@ -229,17 +238,25 @@ def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=
 
     print("Files created. Starting copy test...")
 
-    # Step 2: Create output directory
+    # Step 2: Create output directory and subdirectories for each thread
     os.makedirs(output_dir, exist_ok=True)
+    target_dirs = []
+    for i in range(parallel_writes):
+        thread_dir = os.path.join(output_dir, f'thread_{i}')
+        os.makedirs(thread_dir, exist_ok=True)
+        target_dirs.append(thread_dir)
 
-    # Step 3: Copy files to target location in parallel (TIMED)
+    # Step 3: Copy files to separate directories in parallel (TIMED)
+    # Distribute files across thread directories
     start_time = time.time()
 
     with ThreadPoolExecutor(max_workers=parallel_writes) as executor:
         futures = []
         for i in range(total_files):
             src_path = source_files[i]
-            dst_path = os.path.join(output_dir, f'small_file_{i}.dat')
+            # Round-robin distribution across thread directories
+            thread_id = i % parallel_writes
+            dst_path = os.path.join(target_dirs[thread_id], f'small_file_{i}.dat')
             futures.append(executor.submit(copy_file, src_path, dst_path, size_mb))
 
         for future in as_completed(futures):
@@ -252,14 +269,21 @@ def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=
 
     print(f"Time taken: {elapsed:.2f} seconds")
     print(f"Total data written: {total_mb} MB ({total_gb:.2f} GB)")
-    print(f"Write speed: {speed_mbs:.2f} MB/s ({speed_mbs / 1024:.2f} GB/s)")
+    print(f"Write speed: {speed_mbs / 1024:.2f} GB/s ({speed_mbs:.2f} MB/s)")
     print(f"Files per second: {total_files / elapsed:.2f}")
 
-    # Step 4: Cleanup target files
+    # Step 4: Cleanup target files and directories
     print("Cleaning up target files...")
     for i in range(total_files):
         try:
-            os.remove(os.path.join(output_dir, f'small_file_{i}.dat'))
+            thread_id = i % parallel_writes
+            os.remove(os.path.join(target_dirs[thread_id], f'small_file_{i}.dat'))
+        except:
+            pass
+
+    for thread_dir in target_dirs:
+        try:
+            os.rmdir(thread_dir)
         except:
             pass
 
