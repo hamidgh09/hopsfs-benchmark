@@ -7,7 +7,7 @@ import boto3
 
 def write_large_file(file_path, size_gb):
     """Write a large file of specified size in GB using efficient method"""
-    size_bytes = size_gb * 1024 * 1024 * 1024
+    size_bytes = int(size_gb * 1024 * 1024 * 1024)
 
     # Method 2: Zero-filled (fast and uses actual disk space)
     chunk_size = 10 * 1024 * 1024  # 10MB chunks
@@ -16,7 +16,7 @@ def write_large_file(file_path, size_gb):
     with open(file_path, 'wb') as f:
         written = 0
         while written < size_bytes:
-            to_write = min(chunk_size, size_bytes - written)
+            to_write = int(min(chunk_size, size_bytes - written))
             if to_write == chunk_size:
                 f.write(zero_chunk)
             else:
@@ -26,7 +26,7 @@ def write_large_file(file_path, size_gb):
 
 def write_small_file(file_path, size_mb):
     """Write a small file of specified size in MB"""
-    size_bytes = size_mb * 1024 * 1024
+    size_bytes = int(size_mb * 1024 * 1024)
     with open(file_path, 'wb') as f:
         f.write(os.urandom(size_bytes))
 
@@ -56,23 +56,42 @@ def upload_file_to_s3(s3_client, bucket_name, object_key, local_file_path):
         s3_client.put_object(Bucket=bucket_name, Key=object_key, Body=f)
 
 
-def test_small_files_s3(bucket_name='test-bucket', total_files=5000, parallel_writes=50, size_mb=1, temp_dir='/tmp/s3_small_test'):
-    """Test writing many small files to MinIO/S3 with limited parallelism"""
-    print(f"\n=== Testing Small Files (S3): {total_files} files x {size_mb}MB ({parallel_writes} parallel) ===")
+def test_files_s3(bucket_name='test-bucket', num_files=10, size_mb=1024, parallel_writes=None, temp_dir='/tmp/s3_test'):
+    """Unified function to test writing files to MinIO/S3 in parallel
+
+    Args:
+        bucket_name: S3 bucket name
+        num_files: Number of files to upload
+        size_mb: Size of each file in MB (use 1024 for 1GB, etc.)
+        parallel_writes: Max parallel uploads (defaults to num_files if None)
+        temp_dir: Temporary directory for pre-created files
+    """
+    if parallel_writes is None:
+        parallel_writes = num_files
+
+    size_gb = size_mb / 1024
+    file_prefix = 'large_file' if size_mb >= 100 else 'small_file'
+
+    print(f"\n=== Testing S3 Upload: {num_files} files x {size_mb}MB ({parallel_writes} parallel) ===")
 
     # Step 1: Pre-create files on disk (NOT timed)
-    print(f"Pre-creating {total_files} files on local disk...")
+    print(f"Pre-creating {num_files} files on local disk...")
     os.makedirs(temp_dir, exist_ok=True)
 
-    source_files = []
-    for i in range(total_files):
-        file_path = os.path.join(temp_dir, f'small_file_{i}.dat')
-        source_files.append(file_path)
-        write_small_file(file_path, size_mb)
+    file_paths = []
+    for i in range(num_files):
+        file_path = os.path.join(temp_dir, f'{file_prefix}_{i}.dat')
+        file_paths.append(file_path)
 
-        # Progress indicator for large number of files
-        if (i + 1) % 1000 == 0:
-            print(f"  Created {i+1}/{total_files} files...")
+        # Create file
+        if size_mb >= 100:
+            write_large_file(file_path, size_gb)
+            print(f"  Creating file {i+1}/{num_files}: {file_path}")
+        else:
+            write_small_file(file_path, size_mb)
+            # Progress indicator for many small files
+            if (i + 1) % 1000 == 0:
+                print(f"  Created {i+1}/{num_files} files...")
 
     print("Files created. Starting upload test...")
 
@@ -101,95 +120,8 @@ def test_small_files_s3(bucket_name='test-bucket', total_files=5000, parallel_wr
 
     with ThreadPoolExecutor(max_workers=parallel_writes) as executor:
         futures = []
-        for i in range(total_files):
-            object_key = f'small_file_{i}.dat'
-            local_file_path = source_files[i]
-            futures.append(executor.submit(upload_file_to_s3, s3_client, bucket_name, object_key, local_file_path))
-
-        for future in as_completed(futures):
-            future.result()
-
-    elapsed = time.time() - start_time
-    total_mb = total_files * size_mb
-    total_gb = total_mb / 1024
-    speed_mbs = total_mb / elapsed
-
-    print(f"Time taken: {elapsed:.2f} seconds")
-    print(f"Total data written: {total_mb} MB ({total_gb:.2f} GB)")
-    print(f"Write speed: {speed_mbs / 1024:.2f} GB/s ({speed_mbs:.2f} MB/s)")
-    print(f"Files per second: {total_files / elapsed:.2f}")
-
-    # Step 4: Cleanup S3
-    print("Cleaning up S3...")
-    for i in range(total_files):
-        try:
-            s3_client.delete_object(Bucket=bucket_name, Key=f'small_file_{i}.dat')
-        except:
-            pass
-
-    try:
-        s3_client.delete_bucket(Bucket=bucket_name)
-    except:
-        pass
-
-    # Step 5: Cleanup local files
-    print("Cleaning up local files...")
-    for file_path in source_files:
-        try:
-            os.remove(file_path)
-        except:
-            pass
-
-    try:
-        os.rmdir(temp_dir)
-    except:
-        pass
-
-
-def test_large_files_s3(bucket_name='test-bucket', num_files=10, size_gb=1, temp_dir='/tmp/s3_test'):
-    """Test writing large files to MinIO/S3 in parallel"""
-    print(f"\n=== Testing Large Files (S3): {num_files} files x {size_gb}GB ===")
-
-    # Step 1: Pre-create files on disk (NOT timed)
-    print(f"Pre-creating {num_files} files on local disk...")
-    os.makedirs(temp_dir, exist_ok=True)
-
-    file_paths = []
-    for i in range(num_files):
-        file_path = os.path.join(temp_dir, f'large_file_{i}.dat')
-        file_paths.append(file_path)
-        print(f"  Creating file {i+1}/{num_files}: {file_path}")
-        write_large_file(file_path, size_gb)
-
-    print("Files created. Starting upload test...")
-
-    # Step 2: Setup S3 client
-    access_key = os.environ.get('AWS_ACCESS_KEY_ID', 'minioadmin')
-    secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY', 'minioadmin')
-    endpoint_url = 'http://minio.service.consul:9000'
-
-    s3_client = boto3.client(
-        's3',
-        endpoint_url=endpoint_url,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key
-    )
-
-    # Create bucket if it doesn't exist
-    try:
-        s3_client.create_bucket(Bucket=bucket_name)
-    except s3_client.exceptions.BucketAlreadyOwnedByYou:
-        pass
-    except Exception as e:
-        print(f"Note: {e}")
-
-    # Step 3: Upload files to S3 (TIMED)
-    start_time = time.time()
-
-    with ThreadPoolExecutor(max_workers=num_files) as executor:
-        futures = []
         for i in range(num_files):
-            object_key = f'large_file_{i}.dat'
+            object_key = f'{file_prefix}_{i}.dat'
             local_file_path = file_paths[i]
             futures.append(executor.submit(upload_file_to_s3, s3_client, bucket_name, object_key, local_file_path))
 
@@ -197,18 +129,20 @@ def test_large_files_s3(bucket_name='test-bucket', num_files=10, size_gb=1, temp
             future.result()
 
     elapsed = time.time() - start_time
-    total_gb = num_files * size_gb
-    speed = total_gb / elapsed
+    total_mb = num_files * size_mb
+    total_gb = total_mb / 1024
+    speed_mbs = total_mb / elapsed
 
     print(f"Time taken: {elapsed:.2f} seconds")
-    print(f"Total data written: {total_gb} GB")
-    print(f"Write speed: {speed:.2f} GB/s ({speed * 1024:.2f} MB/s)")
+    print(f"Total data written: {total_gb:.2f} GB ({total_mb} MB)")
+    print(f"Write speed: {speed_mbs / 1024:.2f} GB/s ({speed_mbs:.2f} MB/s)")
+    print(f"Files per second: {num_files / elapsed:.2f}")
 
     # Step 4: Cleanup S3
     print("Cleaning up S3...")
     for i in range(num_files):
         try:
-            s3_client.delete_object(Bucket=bucket_name, Key=f'large_file_{i}.dat')
+            s3_client.delete_object(Bucket=bucket_name, Key=f'{file_prefix}_{i}.dat')
         except:
             pass
 
@@ -406,11 +340,11 @@ if __name__ == '__main__':
     # Test 2: Small files (5000 x 1MB, 50 parallel writes)
     test_small_files(output_dir="/hopsfs/Jupyter/test3", total_files=5000, parallel_writes=50, size_mb=1)
 
-    # Test 3: Large files direct minio
-    test_large_files_s3("test-large", num_files=5, size_gb=1)
+    # Test 3: Large files direct minio (5 files x 1GB each)
+    test_files_s3(bucket_name="test-large", num_files=5, size_mb=1024)
 
-    # Test 4: Small files direct minio
-    test_small_files_s3("test-small", total_files=5000, parallel_writes=50, size_mb=1)
+    # Test 4: Small files direct minio (5000 files x 1MB each, 50 parallel)
+    test_files_s3(bucket_name="test-small", num_files=5000, size_mb=1, parallel_writes=50)
 
 print("\n" + "=" * 50)
 print("Benchmark complete!")
