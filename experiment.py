@@ -1,4 +1,5 @@
 import os
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -242,6 +243,124 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
         pass
 
 
+def copy_file_to_hdfs(local_file_path, hdfs_path):
+    """Copy a local file to HDFS using hdfs dfs -copyFromLocal"""
+    result = subprocess.run(
+        ['hdfs', 'dfs', '-copyFromLocal', local_file_path, hdfs_path],
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        raise Exception(f"Failed to copy {local_file_path} to {hdfs_path}: {result.stderr}")
+
+
+def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_mb=1024, parallel_writes=None, temp_dir='/tmp/hdfs_test'):
+    """Test writing files to HDFS using hdfs dfs -copyFromLocal in parallel
+
+    Args:
+        output_dir: HDFS output directory
+        num_files: Number of files to upload
+        size_mb: Size of each file in MB (use 1024 for 1GB, etc.)
+        parallel_writes: Max parallel uploads (defaults to num_files if None)
+        temp_dir: Temporary directory for pre-created files
+    """
+    if parallel_writes is None:
+        parallel_writes = num_files
+
+    size_gb = size_mb / 1024
+    file_prefix = 'large_file' if size_mb >= 100 else 'small_file'
+
+    print(f"\n=== Testing HDFS copyFromLocal: {num_files} files x {size_mb}MB ({parallel_writes} parallel) ===")
+
+    # Step 1: Pre-create files on disk (NOT timed)
+    print(f"Pre-creating {num_files} files on local disk...")
+    os.makedirs(temp_dir, exist_ok=True)
+
+    file_paths = []
+    for i in range(num_files):
+        file_path = os.path.join(temp_dir, f'{file_prefix}_{i}.dat')
+        file_paths.append(file_path)
+
+        # Create file
+        if size_mb >= 100:
+            write_large_file(file_path, size_gb)
+            print(f"  Creating file {i+1}/{num_files}: {file_path}")
+        else:
+            write_small_file(file_path, size_mb)
+            # Progress indicator for many small files
+            if (i + 1) % 1000 == 0:
+                print(f"  Created {i+1}/{num_files} files...")
+
+    print("Files created. Starting HDFS copy test...")
+
+    # Step 2: Create HDFS output directory and subdirectories for each thread
+    print(f"Creating HDFS directory: {output_dir}")
+    result = subprocess.run(['hdfs', 'dfs', '-mkdir', '-p', output_dir], capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"Error creating {output_dir}: {result.stderr}")
+        raise Exception(f"Failed to create HDFS directory {output_dir}")
+
+    hdfs_dirs = []
+    for i in range(parallel_writes):
+        thread_dir = f'{output_dir}/thread_{i}'
+        print(f"Creating HDFS thread directory: {thread_dir}")
+        result = subprocess.run(['hdfs', 'dfs', '-mkdir', '-p', thread_dir], capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"Error creating {thread_dir}: {result.stderr}")
+            raise Exception(f"Failed to create HDFS directory {thread_dir}")
+        hdfs_dirs.append(thread_dir)
+
+    # Verify directories were created
+    print("Verifying HDFS directories were created...")
+    result = subprocess.run(['hdfs', 'dfs', '-ls', output_dir], capture_output=True, text=True)
+    if result.returncode == 0:
+        print(f"Directory listing:\n{result.stdout}")
+    else:
+        print(f"Warning: Could not list directory: {result.stderr}")
+
+    # Step 3: Copy files to HDFS in parallel (TIMED)
+    start_time = time.time()
+
+    with ThreadPoolExecutor(max_workers=parallel_writes) as executor:
+        futures = []
+        for i in range(num_files):
+            local_file_path = file_paths[i]
+            # Round-robin distribution across thread directories
+            thread_id = i % parallel_writes
+            hdfs_path = f'{hdfs_dirs[thread_id]}/{file_prefix}_{i}.dat'
+            futures.append(executor.submit(copy_file_to_hdfs, local_file_path, hdfs_path))
+
+        for future in as_completed(futures):
+            future.result()
+
+    elapsed = time.time() - start_time
+    total_mb = num_files * size_mb
+    total_gb = total_mb / 1024
+    speed_mbs = total_mb / elapsed
+
+    print(f"Time taken: {elapsed:.2f} seconds")
+    print(f"Total data written: {total_gb:.2f} GB ({total_mb} MB)")
+    print(f"Write speed: {speed_mbs / 1024:.2f} GB/s ({speed_mbs:.2f} MB/s)")
+    print(f"Files per second: {num_files / elapsed:.2f}")
+
+    # Step 4: Cleanup HDFS
+    print("Cleaning up HDFS...")
+    subprocess.run(['hdfs', 'dfs', '-rm', '-r', '-f', output_dir], capture_output=True)
+
+    # Step 5: Cleanup local files
+    print("Cleaning up local files...")
+    for file_path in file_paths:
+        try:
+            os.remove(file_path)
+        except:
+            pass
+
+    try:
+        os.rmdir(temp_dir)
+    except:
+        pass
+
+
 def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=50, size_mb=1, temp_dir='/tmp/small_test'):
     """Test writing many small files with limited parallelism and separate directory per thread"""
     print(f"\n=== Testing Small Files: {total_files} files x {size_mb}MB ({parallel_writes} parallel) ===")
@@ -335,16 +454,22 @@ if __name__ == '__main__':
     print("=" * 50)
 
     # Test 1: Large files (10 x 5GB in parallel)
-    test_large_files(output_dir="/hopsfs/Jupyter/test4", num_files=5, size_gb=1)
+#    test_large_files(output_dir="/hopsfs/Jupyter/test4", num_files=5, size_gb=1)
 
     # Test 2: Small files (5000 x 1MB, 50 parallel writes)
-    test_small_files(output_dir="/hopsfs/Jupyter/test3", total_files=5000, parallel_writes=50, size_mb=1)
+#    test_small_files(output_dir="/hopsfs/Jupyter/test3", total_files=5000, parallel_writes=50, size_mb=1)
 
     # Test 3: Large files direct minio (5 files x 1GB each)
     test_files_s3(bucket_name="test-large", num_files=5, size_mb=1024)
 
     # Test 4: Small files direct minio (5000 files x 1MB each, 50 parallel)
     test_files_s3(bucket_name="test-small", num_files=5000, size_mb=1, parallel_writes=50)
+
+    # Test 5: Large files HDFS copyFromLocal (5 files x 1GB each)
+#    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_large/tests", num_files=5, size_mb=1024)
+
+    # Test 6: Small files HDFS copyFromLocal (5000 files x 1MB each, 50 parallel)
+    #    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_small/tests", num_files=100, size_mb=1, parallel_writes=16)
 
 print("\n" + "=" * 50)
 print("Benchmark complete!")
