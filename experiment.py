@@ -72,6 +72,22 @@ def upload_file_to_s3(s3_client, bucket_name, object_key, local_file_path):
         s3_client.put_object(Bucket=bucket_name, Key=object_key, Body=f)
 
 
+def download_file_from_s3(s3_client, bucket_name, object_key, chunk_size_mb=10):
+    """Download a file from S3 by streaming (memory efficient)
+
+    Args:
+        s3_client: boto3 S3 client
+        bucket_name: S3 bucket name
+        object_key: S3 object key
+        chunk_size_mb: Chunk size in MB for streaming read (default: 10)
+    """
+    chunk_size = chunk_size_mb * 1024 * 1024
+    response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
+    # Stream the body and discard (just measure read speed)
+    for chunk in response['Body'].iter_chunks(chunk_size=chunk_size):
+        pass  # Just read and discard
+
+
 def test_files_s3(bucket_name='test-bucket', num_files=10, size_mb=1024, parallel_writes=None, temp_dir='/tmp/s3_test'):
     """Unified function to test writing files to MinIO/S3 in parallel
 
@@ -149,13 +165,34 @@ def test_files_s3(bucket_name='test-bucket', num_files=10, size_mb=1024, paralle
     total_gb = total_mb / 1024
     speed_mbs = total_mb / elapsed
 
-    print(f"Time taken: {elapsed:.2f} seconds")
+    print(f"Upload time taken: {elapsed:.2f} seconds")
     print(f"Total data written: {total_gb:.2f} GB ({total_mb} MB)")
     print(f"Write speed: {speed_mbs / 1024:.2f} GB/s ({speed_mbs:.2f} MB/s)")
     print(f"Files per second: {num_files / elapsed:.2f}")
 
-    # Step 4: Cleanup S3
-    print("Cleaning up S3...")
+    # Step 4: Download files from S3 (TIMED)
+    print("\nStarting download test...")
+    start_time = time.time()
+
+    with ThreadPoolExecutor(max_workers=parallel_writes) as executor:
+        futures = []
+        for i in range(num_files):
+            object_key = f'{file_prefix}_{i}.dat'
+            futures.append(executor.submit(download_file_from_s3, s3_client, bucket_name, object_key, 10))
+
+        for future in as_completed(futures):
+            future.result()
+
+    elapsed = time.time() - start_time
+    read_speed_mbs = total_mb / elapsed
+
+    print(f"Download time taken: {elapsed:.2f} seconds")
+    print(f"Total data read: {total_gb:.2f} GB ({total_mb} MB)")
+    print(f"Read speed: {read_speed_mbs / 1024:.2f} GB/s ({read_speed_mbs:.2f} MB/s)")
+    print(f"Files per second: {num_files / elapsed:.2f}")
+
+    # Step 5: Cleanup S3
+    print("\nCleaning up S3...")
     for i in range(num_files):
         try:
             s3_client.delete_object(Bucket=bucket_name, Key=f'{file_prefix}_{i}.dat')
@@ -167,7 +204,7 @@ def test_files_s3(bucket_name='test-bucket', num_files=10, size_mb=1024, paralle
     except:
         pass
 
-    # Step 5: Cleanup local files
+    # Step 6: Cleanup local files
     print("Cleaning up local files...")
     for file_path in file_paths:
         try:
@@ -451,13 +488,35 @@ def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=
     total_gb = total_mb / 1024
     speed_mbs = total_mb / elapsed
 
-    print(f"Time taken: {elapsed:.2f} seconds")
+    print(f"Write time taken: {elapsed:.2f} seconds")
     print(f"Total data written: {total_mb} MB ({total_gb:.2f} GB)")
     print(f"Write speed: {speed_mbs / 1024:.2f} GB/s ({speed_mbs:.2f} MB/s)")
     print(f"Files per second: {total_files / elapsed:.2f}")
 
-    # Step 4: Cleanup target files and directories
-    print("Cleaning up target files...")
+    # Step 4: Read files in parallel (TIMED)
+    print("\nStarting read test...")
+    start_time = time.time()
+
+    with ThreadPoolExecutor(max_workers=parallel_writes) as executor:
+        futures = []
+        for i in range(total_files):
+            thread_id = i % parallel_writes
+            file_path = os.path.join(target_dirs[thread_id], f'small_file_{i}.dat')
+            futures.append(executor.submit(read_file, file_path, size_mb))
+
+        for future in as_completed(futures):
+            future.result()
+
+    elapsed = time.time() - start_time
+    read_speed_mbs = total_mb / elapsed
+
+    print(f"Read time taken: {elapsed:.2f} seconds")
+    print(f"Total data read: {total_mb} MB ({total_gb:.2f} GB)")
+    print(f"Read speed: {read_speed_mbs / 1024:.2f} GB/s ({read_speed_mbs:.2f} MB/s)")
+    print(f"Files per second: {total_files / elapsed:.2f}")
+
+    # Step 5: Cleanup target files and directories
+    print("\nCleaning up target files...")
     for i in range(total_files):
         try:
             thread_id = i % parallel_writes
@@ -476,7 +535,7 @@ def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=
     except:
         pass
 
-    # Step 5: Cleanup source files
+    # Step 6: Cleanup source files
     print("Cleaning up source files...")
     for file_path in source_files:
         try:
@@ -498,13 +557,13 @@ if __name__ == '__main__':
     test_large_files(output_dir="/hopsfs/Jupyter/test4", num_files=5, size_gb=1)
 
     # Test 2: Small files (5000 x 1MB, 50 parallel writes)
-#    test_small_files(output_dir="/hopsfs/Jupyter/test3", total_files=5000, parallel_writes=50, size_mb=1)
+    test_small_files(output_dir="/hopsfs/Jupyter/test3", total_files=5000, parallel_writes=50, size_mb=1)
 
     # Test 3: Large files direct minio (5 files x 1GB each)
-#    test_files_s3(bucket_name="test-large", num_files=5, size_mb=1024)
+    test_files_s3(bucket_name="test-large", num_files=5, size_mb=1024)
 
     # Test 4: Small files direct minio (5000 files x 1MB each, 50 parallel)
-#    test_files_s3(bucket_name="test-small", num_files=5000, size_mb=1, parallel_writes=50)
+    test_files_s3(bucket_name="test-small", num_files=5000, size_mb=1, parallel_writes=50)
 
     # Test 5: Large files HDFS copyFromLocal (5 files x 1GB each)
 #    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_large/tests", num_files=5, size_mb=1024)
