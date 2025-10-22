@@ -243,17 +243,23 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
         pass
 
 
-def copy_files_to_hdfs(local_file_paths, hdfs_dir):
-    """Copy multiple local files to HDFS directory using a single hdfs dfs -copyFromLocal command"""
-    # Build command: hdfs dfs -copyFromLocal file1 file2 ... fileN hdfs_dir/
-    cmd = ['hdfs', 'dfs', '-copyFromLocal'] + local_file_paths + [hdfs_dir]
+def copy_dir_to_hdfs_with_threads(local_dir, hdfs_dir, num_threads):
+    """Copy all files from a local directory to HDFS using hdfs dfs -copyFromLocal command with -t flag
+
+    Args:
+        local_dir: Local directory path containing files to copy
+        hdfs_dir: HDFS destination directory
+        num_threads: Number of threads for HDFS to use (-t flag)
+    """
+    # Build command: hdfs dfs -copyFromLocal -t <threads> local_dir hdfs_dir/
+    cmd = ['hdfs', 'dfs', '-copyFromLocal', '-t', str(num_threads), local_dir, hdfs_dir]
     result = subprocess.run(
         cmd,
         capture_output=True,
         text=True
     )
     if result.returncode != 0:
-        raise Exception(f"Failed to copy {len(local_file_paths)} files to {hdfs_dir}: {result.stderr}")
+        raise Exception(f"Failed to copy directory {local_dir} to {hdfs_dir}: {result.stderr}")
 
 
 def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_mb=1024, parallel_writes=None, temp_dir='/tmp/hdfs_test'):
@@ -295,53 +301,20 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_mb=1024, pa
 
     print("Files created. Starting HDFS copy test...")
 
-    # Step 2: Create HDFS output directory and subdirectories for each thread
+    # Step 2: Create HDFS output directory
     print(f"Creating HDFS directory: {output_dir}")
     result = subprocess.run(['hdfs', 'dfs', '-mkdir', '-p', output_dir], capture_output=True, text=True)
     if result.returncode != 0:
         print(f"Error creating {output_dir}: {result.stderr}")
         raise Exception(f"Failed to create HDFS directory {output_dir}")
 
-    hdfs_dirs = []
-    for i in range(parallel_writes):
-        thread_dir = f'{output_dir}/thread_{i}'
-        print(f"Creating HDFS thread directory: {thread_dir}")
-        result = subprocess.run(['hdfs', 'dfs', '-mkdir', '-p', thread_dir], capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"Error creating {thread_dir}: {result.stderr}")
-            raise Exception(f"Failed to create HDFS directory {thread_dir}")
-        hdfs_dirs.append(thread_dir)
-
-    # Verify directories were created
-    print("Verifying HDFS directories were created...")
-    result = subprocess.run(['hdfs', 'dfs', '-ls', output_dir], capture_output=True, text=True)
-    if result.returncode == 0:
-        print(f"Directory listing:\n{result.stdout}")
-    else:
-        print(f"Warning: Could not list directory: {result.stderr}")
-
-    # Step 3: Copy files to HDFS in parallel (TIMED)
-    # Group files by thread using round-robin distribution
-    thread_files = [[] for _ in range(parallel_writes)]
-    for i in range(num_files):
-        thread_id = i % parallel_writes
-        thread_files[thread_id].append(file_paths[i])
-
-    print(f"Starting parallel copy with {parallel_writes} threads...")
-    for i, files in enumerate(thread_files):
-        if files:
-            print(f"  Thread {i} will copy {len(files)} files")
+    # Step 3: Copy all files to HDFS using single command with -t flag (TIMED)
+    print(f"Starting HDFS copy with -t {parallel_writes} (HDFS handles threading)...")
+    print(f"Copying {num_files} files from {temp_dir} to {output_dir}")
 
     start_time = time.time()
 
-    with ThreadPoolExecutor(max_workers=parallel_writes) as executor:
-        futures = []
-        for thread_id in range(parallel_writes):
-            if thread_files[thread_id]:  # Only submit if there are files to copy
-                futures.append(executor.submit(copy_files_to_hdfs, thread_files[thread_id], hdfs_dirs[thread_id]))
-
-        for future in as_completed(futures):
-            future.result()
+    copy_dir_to_hdfs_with_threads(temp_dir, output_dir, parallel_writes)
 
     elapsed = time.time() - start_time
     total_mb = num_files * size_mb
