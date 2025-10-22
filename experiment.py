@@ -50,6 +50,21 @@ def copy_file(src_path, dst_path, chunk_size_mb=1):
                 dst.write(chunk)
 
 
+def read_file(file_path, chunk_size_mb=10):
+    """Read a file using streaming
+
+    Args:
+        file_path: File path to read
+        chunk_size_mb: Chunk size in MB (default: 10)
+    """
+    chunk_size = chunk_size_mb * 1024 * 1024  # Convert MB to bytes
+    with open(file_path, 'rb') as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+
+
 def upload_file_to_s3(s3_client, bucket_name, object_key, local_file_path):
     """Upload a local file to S3 by streaming (memory efficient)"""
     # Open file and upload directly - boto3 will stream it
@@ -208,12 +223,32 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
     total_gb = num_files * size_gb
     speed = total_gb / elapsed
 
-    print(f"Time taken: {elapsed:.2f} seconds")
+    print(f"Write time taken: {elapsed:.2f} seconds")
     print(f"Total data written: {total_gb} GB")
     print(f"Write speed: {speed:.2f} GB/s ({speed * 1024:.2f} MB/s)")
 
-    # Step 4: Cleanup target files and directories
-    print("Cleaning up target files...")
+    # Step 4: Read files in parallel (TIMED)
+    print("\nStarting read test...")
+    start_time = time.time()
+
+    with ThreadPoolExecutor(max_workers=num_files) as executor:
+        futures = []
+        for i in range(num_files):
+            file_path = os.path.join(target_dirs[i], f'large_file_{i}.dat')
+            futures.append(executor.submit(read_file, file_path, 10))
+
+        for future in as_completed(futures):
+            future.result()
+
+    elapsed = time.time() - start_time
+    read_speed = total_gb / elapsed
+
+    print(f"Read time taken: {elapsed:.2f} seconds")
+    print(f"Total data read: {total_gb} GB")
+    print(f"Read speed: {read_speed:.2f} GB/s ({read_speed * 1024:.2f} MB/s)")
+
+    # Step 5: Cleanup target files and directories
+    print("\nCleaning up target files...")
     for i in range(num_files):
         try:
             os.remove(os.path.join(target_dirs[i], f'large_file_{i}.dat'))
@@ -229,7 +264,7 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
     except:
         pass
 
-    # Step 5: Cleanup source files
+    # Step 6: Cleanup source files
     print("Cleaning up source files...")
     for file_path in source_files:
         try:
@@ -460,7 +495,7 @@ if __name__ == '__main__':
     print("=" * 50)
 
     # Test 1: Large files (10 x 5GB in parallel)
-#    test_large_files(output_dir="/hopsfs/Jupyter/test4", num_files=5, size_gb=1)
+    test_large_files(output_dir="/hopsfs/Jupyter/test4", num_files=5, size_gb=1)
 
     # Test 2: Small files (5000 x 1MB, 50 parallel writes)
 #    test_small_files(output_dir="/hopsfs/Jupyter/test3", total_files=5000, parallel_writes=50, size_mb=1)
@@ -472,10 +507,10 @@ if __name__ == '__main__':
 #    test_files_s3(bucket_name="test-small", num_files=5000, size_mb=1, parallel_writes=50)
 
     # Test 5: Large files HDFS copyFromLocal (5 files x 1GB each)
-    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_large/tests", num_files=5, size_mb=1024)
+#    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_large/tests", num_files=5, size_mb=1024)
 
     # Test 6: Small files HDFS copyFromLocal (5000 files x 1MB each, 50 parallel)
-    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_small/tests", num_files=100, size_mb=1, parallel_writes=16)
+#    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_small/tests", num_files=100, size_mb=1, parallel_writes=16)
 
 print("\n" + "=" * 50)
 print("Benchmark complete!")
