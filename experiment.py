@@ -280,13 +280,28 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_mb=1024, pa
 
     print(f"\n=== Testing HDFS copyFromLocal: {num_files} files x {size_mb}MB ({parallel_writes} parallel) ===")
 
-    # Step 1: Pre-create files on disk (NOT timed)
-    print(f"Pre-creating {num_files} files on local disk...")
+    # Step 1: Pre-create files on disk organized in subdirectories (NOT timed)
+    # Every 100 files go into a separate subdirectory
+    print(f"Pre-creating {num_files} files on local disk (100 files per subdirectory)...")
     os.makedirs(temp_dir, exist_ok=True)
 
+    files_per_subdir = 100
+    subdirs = []
     file_paths = []
+
     for i in range(num_files):
-        file_path = os.path.join(temp_dir, f'{file_prefix}_{i}.dat')
+        # Determine subdirectory for this file
+        subdir_index = i // files_per_subdir
+        subdir_path = os.path.join(temp_dir, f'subdir_{subdir_index}')
+
+        # Create subdirectory if it doesn't exist
+        if subdir_path not in subdirs:
+            os.makedirs(subdir_path, exist_ok=True)
+            subdirs.append(subdir_path)
+            print(f"  Created subdirectory: subdir_{subdir_index}")
+
+        # Create file in the subdirectory
+        file_path = os.path.join(subdir_path, f'{file_prefix}_{i}.dat')
         file_paths.append(file_path)
 
         # Create file
@@ -330,7 +345,7 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_mb=1024, pa
     print("Cleaning up HDFS...")
     subprocess.run(['hdfs', 'dfs', '-rm', '-r', '-f', output_dir], capture_output=True)
 
-    # Step 5: Cleanup local files
+    # Step 5: Cleanup local files and directories
     print("Cleaning up local files...")
     for file_path in file_paths:
         try:
@@ -338,6 +353,14 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_mb=1024, pa
         except:
             pass
 
+    # Remove subdirectories
+    for subdir in subdirs:
+        try:
+            os.rmdir(subdir)
+        except:
+            pass
+
+    # Remove main temp directory
     try:
         os.rmdir(temp_dir)
     except:
@@ -449,7 +472,7 @@ if __name__ == '__main__':
 #    test_files_s3(bucket_name="test-small", num_files=5000, size_mb=1, parallel_writes=50)
 
     # Test 5: Large files HDFS copyFromLocal (5 files x 1GB each)
-#    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_large/tests", num_files=5, size_mb=1024)
+    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_large/tests", num_files=5, size_mb=1024)
 
     # Test 6: Small files HDFS copyFromLocal (5000 files x 1MB each, 50 parallel)
     test_files_local_copy(output_dir="/Projects/test3/test_hdfs_small/tests", num_files=100, size_mb=1, parallel_writes=16)
