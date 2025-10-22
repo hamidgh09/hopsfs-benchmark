@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -334,6 +335,25 @@ def copy_dir_to_hdfs_with_threads(local_dir, hdfs_dir, num_threads):
         raise Exception(f"Failed to copy directory {local_dir} to {hdfs_dir}: {result.stderr}")
 
 
+def copy_dir_from_hdfs_with_threads(hdfs_dir, local_dir, num_threads):
+    """Copy all files from HDFS to a local directory using hdfs dfs -copyToLocal command with -t flag
+
+    Args:
+        hdfs_dir: HDFS source directory
+        local_dir: Local destination directory path
+        num_threads: Number of threads for HDFS to use (-t flag)
+    """
+    # Build command: hdfs dfs -copyToLocal -t <threads> hdfs_dir local_dir/
+    cmd = ['hdfs', 'dfs', '-copyToLocal', '-t', str(num_threads), hdfs_dir, local_dir]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        raise Exception(f"Failed to copy directory {hdfs_dir} to {local_dir}: {result.stderr}")
+
+
 def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_mb=1024, parallel_writes=None, temp_dir='/tmp/hdfs_test'):
     """Test writing files to HDFS using hdfs dfs -copyFromLocal in parallel
 
@@ -408,17 +428,42 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_mb=1024, pa
     total_gb = total_mb / 1024
     speed_mbs = total_mb / elapsed
 
-    print(f"Time taken: {elapsed:.2f} seconds")
+    print(f"Upload time taken: {elapsed:.2f} seconds")
     print(f"Total data written: {total_gb:.2f} GB ({total_mb} MB)")
     print(f"Write speed: {speed_mbs / 1024:.2f} GB/s ({speed_mbs:.2f} MB/s)")
     print(f"Files per second: {num_files / elapsed:.2f}")
 
-    # Step 4: Cleanup HDFS
-    print("Cleaning up HDFS...")
+    # Step 4: Copy files from HDFS to local using copyToLocal with -t flag (TIMED)
+    print(f"\nStarting HDFS copyToLocal with -t {parallel_writes} (HDFS handles threading)...")
+    download_dir = temp_dir + '_download'
+    os.makedirs(download_dir, exist_ok=True)
+    print(f"Downloading {num_files} files from {output_dir} to {download_dir}")
+
+    start_time = time.time()
+
+    copy_dir_from_hdfs_with_threads(output_dir, download_dir, parallel_writes)
+
+    elapsed = time.time() - start_time
+    read_speed_mbs = total_mb / elapsed
+
+    print(f"Download time taken: {elapsed:.2f} seconds")
+    print(f"Total data read: {total_gb:.2f} GB ({total_mb} MB)")
+    print(f"Read speed: {read_speed_mbs / 1024:.2f} GB/s ({read_speed_mbs:.2f} MB/s)")
+    print(f"Files per second: {num_files / elapsed:.2f}")
+
+    # Step 5: Cleanup HDFS
+    print("\nCleaning up HDFS...")
     subprocess.run(['hdfs', 'dfs', '-rm', '-r', '-f', output_dir], capture_output=True)
 
-    # Step 5: Cleanup local files and directories
-    print("Cleaning up local files...")
+    # Step 6: Cleanup downloaded files
+    print("Cleaning up downloaded files...")
+    try:
+        shutil.rmtree(download_dir)
+    except:
+        pass
+
+    # Step 7: Cleanup local upload files and directories
+    print("Cleaning up local upload files...")
     for file_path in file_paths:
         try:
             os.remove(file_path)
@@ -566,10 +611,10 @@ if __name__ == '__main__':
     test_files_s3(bucket_name="test-small", num_files=5000, size_mb=1, parallel_writes=50)
 
     # Test 5: Large files HDFS copyFromLocal (5 files x 1GB each)
-#    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_large/tests", num_files=5, size_mb=1024)
+    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_large/tests", num_files=5, size_mb=1024)
 
     # Test 6: Small files HDFS copyFromLocal (5000 files x 1MB each, 50 parallel)
-#    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_small/tests", num_files=100, size_mb=1, parallel_writes=16)
+    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_small/tests", num_files=100, size_mb=1, parallel_writes=16)
 
 print("\n" + "=" * 50)
 print("Benchmark complete!")
