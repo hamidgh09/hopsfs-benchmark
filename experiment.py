@@ -26,22 +26,22 @@ def write_large_file(file_path, size_gb):
             written += to_write
 
 
-def write_small_file(file_path, size_mb):
-    """Write a small file of specified size in MB"""
-    size_bytes = int(size_mb * 1024 * 1024)
+def write_small_file(file_path, size_kb):
+    """Write a small file of specified size in KB"""
+    size_bytes = int(size_kb * 1024)
     with open(file_path, 'wb') as f:
         f.write(os.urandom(size_bytes))
 
 
-def copy_file(src_path, dst_path, chunk_size_mb=1):
+def copy_file(src_path, dst_path, chunk_size_kb=1024):
     """Copy a file from source to destination using streaming
 
     Args:
         src_path: Source file path
         dst_path: Destination file path
-        chunk_size_mb: Chunk size in MB (default: 1)
+        chunk_size_kb: Chunk size in KB (default: 1024)
     """
-    chunk_size = chunk_size_mb * 1024 * 1024  # Convert MB to bytes
+    chunk_size = chunk_size_kb * 1024  # Convert KB to bytes
     with open(src_path, 'rb') as src:
         with open(dst_path, 'wb') as dst:
             while True:
@@ -51,14 +51,14 @@ def copy_file(src_path, dst_path, chunk_size_mb=1):
                 dst.write(chunk)
 
 
-def read_file(file_path, chunk_size_mb=10):
+def read_file(file_path, chunk_size_kb=10240):
     """Read a file using streaming
 
     Args:
         file_path: File path to read
-        chunk_size_mb: Chunk size in MB (default: 10)
+        chunk_size_kb: Chunk size in KB (default: 10240)
     """
-    chunk_size = chunk_size_mb * 1024 * 1024  # Convert MB to bytes
+    chunk_size = chunk_size_kb * 1024  # Convert KB to bytes
     with open(file_path, 'rb') as f:
         while True:
             chunk = f.read(chunk_size)
@@ -73,39 +73,40 @@ def upload_file_to_s3(s3_client, bucket_name, object_key, local_file_path):
         s3_client.put_object(Bucket=bucket_name, Key=object_key, Body=f)
 
 
-def download_file_from_s3(s3_client, bucket_name, object_key, chunk_size_mb=10):
+def download_file_from_s3(s3_client, bucket_name, object_key, chunk_size_kb=10240):
     """Download a file from S3 by streaming (memory efficient)
 
     Args:
         s3_client: boto3 S3 client
         bucket_name: S3 bucket name
         object_key: S3 object key
-        chunk_size_mb: Chunk size in MB for streaming read (default: 10)
+        chunk_size_kb: Chunk size in KB for streaming read (default: 10240)
     """
-    chunk_size = chunk_size_mb * 1024 * 1024
+    chunk_size = chunk_size_kb * 1024  # Convert KB to bytes
     response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
     # Stream the body and discard (just measure read speed)
     for chunk in response['Body'].iter_chunks(chunk_size=chunk_size):
         pass  # Just read and discard
 
 
-def test_files_s3(bucket_name='test-bucket', num_files=10, size_mb=1024, parallel_writes=None, temp_dir='/tmp/s3_test'):
+def test_files_s3(bucket_name='test-bucket', num_files=10, size_kb=1048576, parallel_writes=None, temp_dir='/tmp/s3_test'):
     """Unified function to test writing files to MinIO/S3 in parallel
 
     Args:
         bucket_name: S3 bucket name
         num_files: Number of files to upload
-        size_mb: Size of each file in MB (use 1024 for 1GB, etc.)
+        size_kb: Size of each file in KB (use 1048576 for 1GB, etc.)
         parallel_writes: Max parallel uploads (defaults to num_files if None)
         temp_dir: Temporary directory for pre-created files
     """
     if parallel_writes is None:
         parallel_writes = num_files
 
-    size_gb = size_mb / 1024
-    file_prefix = 'large_file' if size_mb >= 100 else 'small_file'
+    size_mb = size_kb / 1024
+    size_gb = size_kb / (1024 * 1024)
+    file_prefix = 'large_file' if size_kb >= 100 * 1024 else 'small_file'
 
-    print(f"\n=== Testing S3 Upload: {num_files} files x {size_mb}MB ({parallel_writes} parallel) ===")
+    print(f"\n=== Testing S3 Upload: {num_files} files x {size_mb:.2f}MB ({parallel_writes} parallel) ===")
 
     # Step 1: Pre-create files on disk (NOT timed)
     print(f"Pre-creating {num_files} files on local disk...")
@@ -117,11 +118,11 @@ def test_files_s3(bucket_name='test-bucket', num_files=10, size_mb=1024, paralle
         file_paths.append(file_path)
 
         # Create file
-        if size_mb >= 100:
+        if size_kb >= 100 * 1024:  # >= 100MB
             write_large_file(file_path, size_gb)
             print(f"  Creating file {i+1}/{num_files}: {file_path}")
         else:
-            write_small_file(file_path, size_mb)
+            write_small_file(file_path, size_kb)
             # Progress indicator for many small files
             if (i + 1) % 1000 == 0:
                 print(f"  Created {i+1}/{num_files} files...")
@@ -179,7 +180,7 @@ def test_files_s3(bucket_name='test-bucket', num_files=10, size_mb=1024, paralle
         futures = []
         for i in range(num_files):
             object_key = f'{file_prefix}_{i}.dat'
-            futures.append(executor.submit(download_file_from_s3, s3_client, bucket_name, object_key, 10))
+            futures.append(executor.submit(download_file_from_s3, s3_client, bucket_name, object_key, 10 * 1024))  # 10MB in KB
 
         for future in as_completed(futures):
             future.result()
@@ -252,7 +253,7 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
         for i in range(num_files):
             src_path = source_files[i]
             dst_path = os.path.join(target_dirs[i], f'large_file_{i}.dat')
-            futures.append(executor.submit(copy_file, src_path, dst_path, 10))
+            futures.append(executor.submit(copy_file, src_path, dst_path, 10 * 1024))  # 10MB in KB
 
         for future in as_completed(futures):
             future.result()
@@ -273,7 +274,7 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
         futures = []
         for i in range(num_files):
             file_path = os.path.join(target_dirs[i], f'large_file_{i}.dat')
-            futures.append(executor.submit(read_file, file_path, 10))
+            futures.append(executor.submit(read_file, file_path, 10 * 1024))  # 10MB in KB
 
         for future in as_completed(futures):
             future.result()
@@ -354,23 +355,24 @@ def copy_dir_from_hdfs_with_threads(hdfs_dir, local_dir, num_threads):
         raise Exception(f"Failed to copy directory {hdfs_dir} to {local_dir}: {result.stderr}")
 
 
-def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_mb=1024, parallel_writes=None, temp_dir='/tmp/hdfs_test'):
+def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_kb=1048576, parallel_writes=None, temp_dir='/tmp/hdfs_test'):
     """Test writing files to HDFS using hdfs dfs -copyFromLocal in parallel
 
     Args:
         output_dir: HDFS output directory
         num_files: Number of files to upload
-        size_mb: Size of each file in MB (use 1024 for 1GB, etc.)
+        size_kb: Size of each file in KB (use 1048576 for 1GB, etc.)
         parallel_writes: Max parallel uploads (defaults to num_files if None)
         temp_dir: Temporary directory for pre-created files
     """
     if parallel_writes is None:
         parallel_writes = num_files
 
-    size_gb = size_mb / 1024
-    file_prefix = 'large_file' if size_mb >= 100 else 'small_file'
+    size_mb = size_kb / 1024
+    size_gb = size_kb / (1024 * 1024)
+    file_prefix = 'large_file' if size_kb >= 100 * 1024 else 'small_file'
 
-    print(f"\n=== Testing HDFS copyFromLocal: {num_files} files x {size_mb}MB ({parallel_writes} parallel) ===")
+    print(f"\n=== Testing HDFS copyFromLocal: {num_files} files x {size_mb:.2f}MB ({parallel_writes} parallel) ===")
 
     # Step 1: Pre-create files on disk organized in subdirectories (NOT timed)
     # Every 100 files go into a separate subdirectory
@@ -397,11 +399,11 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_mb=1024, pa
         file_paths.append(file_path)
 
         # Create file
-        if size_mb >= 100:
+        if size_kb >= 100 * 1024:  # >= 100MB
             write_large_file(file_path, size_gb)
             print(f"  Creating file {i+1}/{num_files}: {file_path}")
         else:
-            write_small_file(file_path, size_mb)
+            write_small_file(file_path, size_kb)
             # Progress indicator for many small files
             if (i + 1) % 1000 == 0:
                 print(f"  Created {i+1}/{num_files} files...")
@@ -484,9 +486,11 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_mb=1024, pa
         pass
 
 
-def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=50, size_mb=1, temp_dir='/tmp/small_test'):
+def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=50, size_kb=1024, temp_dir='/tmp/small_test'):
     """Test writing many small files with limited parallelism and separate directory per thread"""
-    print(f"\n=== Testing Small Files: {total_files} files x {size_mb}MB ({parallel_writes} parallel) ===")
+    size_mb = size_kb / 1024
+
+    print(f"\n=== Testing Small Files: {total_files} files x {size_mb:.2f}MB ({parallel_writes} parallel) ===")
 
     # Step 1: Pre-create files on local disk (NOT timed)
     print(f"Pre-creating {total_files} files on local disk...")
@@ -496,7 +500,7 @@ def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=
     for i in range(total_files):
         file_path = os.path.join(temp_dir, f'small_file_{i}.dat')
         source_files.append(file_path)
-        write_small_file(file_path, size_mb)
+        write_small_file(file_path, size_kb)
 
         # Progress indicator for large number of files
         if (i + 1) % 1000 == 0:
@@ -523,7 +527,7 @@ def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=
             # Round-robin distribution across thread directories
             thread_id = i % parallel_writes
             dst_path = os.path.join(target_dirs[thread_id], f'small_file_{i}.dat')
-            futures.append(executor.submit(copy_file, src_path, dst_path, size_mb))
+            futures.append(executor.submit(copy_file, src_path, dst_path, size_kb))
 
         for future in as_completed(futures):
             future.result()
@@ -547,7 +551,7 @@ def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=
         for i in range(total_files):
             thread_id = i % parallel_writes
             file_path = os.path.join(target_dirs[thread_id], f'small_file_{i}.dat')
-            futures.append(executor.submit(read_file, file_path, size_mb))
+            futures.append(executor.submit(read_file, file_path, size_kb))
 
         for future in as_completed(futures):
             future.result()
@@ -599,22 +603,22 @@ if __name__ == '__main__':
     print("=" * 50)
 
     # Test 1: Large files (10 x 5GB in parallel)
-    test_large_files(output_dir="/hopsfs/Jupyter/test4", num_files=5, size_gb=1)
+    test_large_files(output_dir="/hopsfs/Jupyter/test", num_files=5, size_gb=1)
 
     # Test 2: Small files (5000 x 1MB, 50 parallel writes)
-    test_small_files(output_dir="/hopsfs/Jupyter/test3", total_files=5000, parallel_writes=50, size_mb=1)
+    test_small_files(output_dir="/hopsfs/Jupyter/test", total_files=1000, parallel_writes=32, size_kb=100)
 
     # Test 3: Large files direct minio (5 files x 1GB each)
-    test_files_s3(bucket_name="test-large", num_files=5, size_mb=1024)
+    test_files_s3(bucket_name="test-large", num_files=5, size_kb=1024*1024)
 
     # Test 4: Small files direct minio (5000 files x 1MB each, 50 parallel)
-    test_files_s3(bucket_name="test-small", num_files=5000, size_mb=1, parallel_writes=50)
+    test_files_s3(bucket_name="test-small", num_files=1000, size_kb=100, parallel_writes=32)
 
     # Test 5: Large files HDFS copyFromLocal (5 files x 1GB each)
-    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_large/tests", num_files=5, size_mb=1024)
+    test_files_local_copy(output_dir="/Projects/test/test_hdfs_large/tests", num_files=5, size_kb=1024*1024)
 
     # Test 6: Small files HDFS copyFromLocal (5000 files x 1MB each, 50 parallel)
-    test_files_local_copy(output_dir="/Projects/test3/test_hdfs_small/tests", num_files=100, size_mb=1, parallel_writes=16)
+    test_files_local_copy(output_dir="/Projects/test/test_hdfs_small/tests", num_files=1000, size_kb=100, parallel_writes=32)
 
 print("\n" + "=" * 50)
 print("Benchmark complete!")
