@@ -98,6 +98,9 @@ def test_files_s3(bucket_name='test-bucket', num_files=10, size_kb=1048576, para
         size_kb: Size of each file in KB (use 1048576 for 1GB, etc.)
         parallel_writes: Max parallel uploads (defaults to num_files if None)
         temp_dir: Temporary directory for pre-created files
+
+    Returns:
+        dict: {'write_speed_mbs': float, 'read_speed_mbs': float}
     """
     if parallel_writes is None:
         parallel_writes = num_files
@@ -219,9 +222,18 @@ def test_files_s3(bucket_name='test-bucket', num_files=10, size_kb=1048576, para
     except:
         pass
 
+    return {
+        'write_speed_mbs': speed_mbs,
+        'read_speed_mbs': read_speed_mbs
+    }
+
 
 def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir='/tmp/local_test'):
-    """Test writing large files in parallel with separate directory per thread"""
+    """Test writing large files in parallel with separate directory per thread
+
+    Returns:
+        dict: {'write_speed_mbs': float, 'read_speed_mbs': float}
+    """
     print(f"\n=== Testing Large Files: {num_files} files x {size_gb}GB ===")
 
     # Step 1: Pre-create files on local disk (NOT timed)
@@ -316,6 +328,11 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
     except:
         pass
 
+    return {
+        'write_speed_mbs': speed * 1024,
+        'read_speed_mbs': read_speed * 1024
+    }
+
 
 def copy_dir_to_hdfs_with_threads(local_dir, hdfs_dir, num_threads):
     """Copy all files from a local directory to HDFS using hdfs dfs -copyFromLocal command with -t flag
@@ -364,6 +381,9 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_kb=1048576,
         size_kb: Size of each file in KB (use 1048576 for 1GB, etc.)
         parallel_writes: Max parallel uploads (defaults to num_files if None)
         temp_dir: Temporary directory for pre-created files
+
+    Returns:
+        dict: {'write_speed_mbs': float, 'read_speed_mbs': float}
     """
     if parallel_writes is None:
         parallel_writes = num_files
@@ -485,9 +505,18 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_kb=1048576,
     except:
         pass
 
+    return {
+        'write_speed_mbs': speed_mbs,
+        'read_speed_mbs': read_speed_mbs
+    }
+
 
 def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=50, size_kb=1024, temp_dir='/tmp/small_test'):
-    """Test writing many small files with limited parallelism and separate directory per thread"""
+    """Test writing many small files with limited parallelism and separate directory per thread
+
+    Returns:
+        dict: {'write_speed_mbs': float, 'read_speed_mbs': float}
+    """
     size_mb = size_kb / 1024
 
     print(f"\n=== Testing Small Files: {total_files} files x {size_mb:.2f}MB ({parallel_writes} parallel) ===")
@@ -597,28 +626,49 @@ def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=
     except:
         pass
 
+    return {
+        'write_speed_mbs': speed_mbs,
+        'read_speed_mbs': read_speed_mbs
+    }
+
 
 if __name__ == '__main__':
     print("Disk Write Speed Benchmark")
     print("=" * 50)
 
+    results = {}
+
     # Test 1: Large files (10 x 5GB in parallel)
-    test_large_files(output_dir="/hopsfs/Jupyter/test", num_files=5, size_gb=1)
+    results['Test 1: Large files (hopsfs-mount)'] = test_large_files(output_dir="/hopsfs/Jupyter/test", num_files=5, size_gb=1)
 
     # Test 2: Small files (5000 x 1MB, 50 parallel writes)
-    test_small_files(output_dir="/hopsfs/Jupyter/test", total_files=1000, parallel_writes=32, size_kb=100)
+    results['Test 2: Small files (hopsfs-mount)'] = test_small_files(output_dir="/hopsfs/Jupyter/test", total_files=1000, parallel_writes=32, size_kb=100)
 
     # Test 3: Large files direct minio (5 files x 1GB each)
-    test_files_s3(bucket_name="test-large", num_files=5, size_kb=1024*1024)
+    results['Test 3: Large files (S3)'] = test_files_s3(bucket_name="test-large", num_files=5, size_kb=1024*1024)
 
     # Test 4: Small files direct minio (5000 files x 1MB each, 50 parallel)
-    test_files_s3(bucket_name="test-small", num_files=1000, size_kb=100, parallel_writes=32)
+    results['Test 4: Small files (S3)'] = test_files_s3(bucket_name="test-small", num_files=1000, size_kb=100, parallel_writes=32)
 
     # Test 5: Large files HDFS copyFromLocal (5 files x 1GB each)
-    test_files_local_copy(output_dir="/Projects/test/test_hdfs_large/tests", num_files=5, size_kb=1024*1024)
+    results['Test 5: Large files (HDFS)'] = test_files_local_copy(output_dir="/Projects/test/test_hdfs_large/tests", num_files=5, size_kb=1024*1024)
 
     # Test 6: Small files HDFS copyFromLocal (5000 files x 1MB each, 50 parallel)
-    test_files_local_copy(output_dir="/Projects/test/test_hdfs_small/tests", num_files=1000, size_kb=100, parallel_writes=32)
+    results['Test 6: Small files (HDFS)'] = test_files_local_copy(output_dir="/Projects/test/test_hdfs_small/tests", num_files=1000, size_kb=100, parallel_writes=32)
+
+    # Print summary table
+    print("\n" + "=" * 80)
+    print("BENCHMARK RESULTS SUMMARY")
+    print("=" * 80)
+    print(f"{'Test Name':<35} {'Write Speed (MB/s)':<20} {'Read Speed (MB/s)':<20}")
+    print("-" * 80)
+
+    for test_name, speeds in results.items():
+        write_speed = speeds['write_speed_mbs']
+        read_speed = speeds['read_speed_mbs']
+        print(f"{test_name:<35} {write_speed:>18.2f}  {read_speed:>18.2f}")
+
+    print("=" * 80)
 
 print("\n" + "=" * 50)
 print("Benchmark complete!")
