@@ -5,8 +5,37 @@ Benchmark Runner for HopsFS Performance Evaluation
 """
 
 import argparse
+import csv
 import sys
 from experiment import test_large_files, test_small_files, test_files_s3, test_files_local_copy
+
+
+def run_test_multiple_times(test_func, num_runs, **kwargs):
+    """Run a test function multiple times and return all individual results"""
+    all_write_speeds = []
+    all_read_speeds = []
+
+    for run in range(num_runs):
+        if num_runs > 1:
+            print(f"  [Run {run + 1}/{num_runs}]")
+        result = test_func(**kwargs)
+        all_write_speeds.append(result['write_speed_mbs'])
+        all_read_speeds.append(result['read_speed_mbs'])
+
+    # Calculate averages
+    avg_write = sum(all_write_speeds) / len(all_write_speeds)
+    avg_read = sum(all_read_speeds) / len(all_read_speeds)
+
+    if num_runs > 1:
+        print(f"  Average write speed: {avg_write:.2f} MB/s")
+        print(f"  Average read speed: {avg_read:.2f} MB/s")
+
+    return {
+        'write_speed_mbs': avg_write,
+        'read_speed_mbs': avg_read,
+        'all_write_speeds': all_write_speeds,
+        'all_read_speeds': all_read_speeds
+    }
 
 
 def run_hopsfs_mount_tests(config):
@@ -16,10 +45,13 @@ def run_hopsfs_mount_tests(config):
     print("=" * 80)
 
     results = {}
+    num_runs = config.get('runs', 1)
 
     # Test 1: Large files
     print("\n--- Test 1: Large files (hopsfs-mount) ---")
-    results['Large files (hopsfs-mount)'] = test_large_files(
+    results['Large files (hopsfs-mount)'] = run_test_multiple_times(
+        test_large_files,
+        num_runs,
         output_dir=config.get('output_dir', '/hopsfs/Jupyter/test'),
         num_files=config.get('num_files_large', 5),
         size_gb=config.get('size_gb', 1)
@@ -27,7 +59,9 @@ def run_hopsfs_mount_tests(config):
 
     # Test 2: Small files
     print("\n--- Test 2: Small files (hopsfs-mount) ---")
-    results['Small files (hopsfs-mount)'] = test_small_files(
+    results['Small files (hopsfs-mount)'] = run_test_multiple_times(
+        test_small_files,
+        num_runs,
         output_dir=config.get('output_dir', '/hopsfs/Jupyter/test'),
         total_files=config.get('num_files_small', 1000),
         parallel_writes=config.get('parallel_writes', 32),
@@ -44,10 +78,13 @@ def run_minio_tests(config):
     print("=" * 80)
 
     results = {}
+    num_runs = config.get('runs', 1)
 
     # Test 3: Large files
     print("\n--- Test 3: Large files (S3) ---")
-    results['Large files (S3)'] = test_files_s3(
+    results['Large files (S3)'] = run_test_multiple_times(
+        test_files_s3,
+        num_runs,
         bucket_name=config.get('bucket_large', 'test-large'),
         num_files=config.get('num_files_large', 5),
         size_kb=1024 * 1024  # 1GB
@@ -55,7 +92,9 @@ def run_minio_tests(config):
 
     # Test 4: Small files
     print("\n--- Test 4: Small files (S3) ---")
-    results['Small files (S3)'] = test_files_s3(
+    results['Small files (S3)'] = run_test_multiple_times(
+        test_files_s3,
+        num_runs,
         bucket_name=config.get('bucket_small', 'test-small'),
         num_files=config.get('num_files_small', 1000),
         size_kb=config.get('size_kb', 100),
@@ -72,25 +111,66 @@ def run_java_client_tests(config):
     print("=" * 80)
 
     results = {}
+    num_runs = config.get('runs', 1)
 
     # Test 5: Large files
     print("\n--- Test 5: Large files (HDFS) ---")
-    results['Large files (HDFS)'] = test_files_local_copy(
-        output_dir=config.get('hdfs_output_dir', '/Projects/test/test_hdfs_large/tests'),
+    results['Large files (HDFS)'] = run_test_multiple_times(
+        test_files_local_copy,
+        num_runs,
+        output_dir=f"{config.get('hdfs_output_dir', '/Projects/test')}/test_hdfs_large/tests",
         num_files=config.get('num_files_large', 5),
         size_kb=1024 * 1024  # 1GB
     )
 
     # Test 6: Small files
     print("\n--- Test 6: Small files (HDFS) ---")
-    results['Small files (HDFS)'] = test_files_local_copy(
-        output_dir=config.get('hdfs_output_dir', '/Projects/test/test_hdfs_small/tests'),
+    results['Small files (HDFS)'] = run_test_multiple_times(
+        test_files_local_copy,
+        num_runs,
+        output_dir=f"{config.get('hdfs_output_dir', '/Projects/test')}/test_hdfs_small/tests",
         num_files=config.get('num_files_small', 1000),
         size_kb=config.get('size_kb', 100),
         parallel_writes=config.get('parallel_writes', 32)
     )
 
     return results
+
+
+def write_results_to_csv(results):
+    """Write results to separate CSV files for write and read speeds"""
+    if not results:
+        return
+
+    # Determine number of runs from the first result
+    first_result = next(iter(results.values()))
+    num_runs = len(first_result['all_write_speeds'])
+
+    # Write speeds CSV
+    with open('write_speeds.csv', 'w', newline='') as f:
+        writer = csv.writer(f)
+        # Create header with run columns
+        header = ['Experiment'] + [f'Run {i+1} (MB/s)' for i in range(num_runs)]
+        writer.writerow(header)
+
+        for test_name, speeds in results.items():
+            row = [test_name] + [f"{speed:.2f}" for speed in speeds['all_write_speeds']]
+            writer.writerow(row)
+
+    print("\nWrite speeds saved to: write_speeds.csv")
+
+    # Read speeds CSV
+    with open('read_speeds.csv', 'w', newline='') as f:
+        writer = csv.writer(f)
+        # Create header with run columns
+        header = ['Experiment'] + [f'Run {i+1} (MB/s)' for i in range(num_runs)]
+        writer.writerow(header)
+
+        for test_name, speeds in results.items():
+            row = [test_name] + [f"{speed:.2f}" for speed in speeds['all_read_speeds']]
+            writer.writerow(row)
+
+    print("Read speeds saved to: read_speeds.csv")
 
 
 def print_results_summary(results):
@@ -130,6 +210,9 @@ Examples:
 
   # Run with custom configuration
   python run_benchmark.py --hopsfs-mount --num-files-small 5000 --parallel-writes 50
+
+  # Run each experiment 3 times and average the results
+  python run_benchmark.py --all --runs 3
         """
     )
 
@@ -164,6 +247,8 @@ Examples:
                              help='S3 bucket name for large files (default: test-large)')
     config_group.add_argument('--bucket-small', type=str, default='test-small',
                              help='S3 bucket name for small files (default: test-small)')
+    config_group.add_argument('--runs', type=int, default=1,
+                             help='Number of times to run each experiment (default: 1)')
 
     args = parser.parse_args()
 
@@ -184,6 +269,7 @@ Examples:
         'parallel_writes': args.parallel_writes,
         'bucket_large': args.bucket_large,
         'bucket_small': args.bucket_small,
+        'runs': args.runs,
     }
 
     # Determine which tests to run
@@ -197,6 +283,7 @@ Examples:
     print(f"  - HopsFS Mount: {'Yes' if run_hopsfs else 'No'}")
     print(f"  - MinIO/S3:     {'Yes' if run_minio else 'No'}")
     print(f"  - Java Client:  {'Yes' if run_hdfs else 'No'}")
+    print(f"Runs per experiment: {config['runs']}")
     print("=" * 50)
 
     # Run selected tests
@@ -217,6 +304,9 @@ Examples:
 
         # Print summary
         print_results_summary(all_results)
+
+        # Write results to CSV files
+        write_results_to_csv(all_results)
 
         print("\n" + "=" * 50)
         print("Benchmark complete!")
