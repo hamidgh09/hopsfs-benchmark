@@ -87,7 +87,7 @@ def run_minio_tests(config):
         num_runs,
         bucket_name=config.get('bucket_large', 'test-large'),
         num_files=config.get('num_files_large', 5),
-        size_kb=1024 * 1024  # 1GB
+        size_kb=int(config.get('size_gb', 1) * 1024 * 1024)
     )
 
     # Test 4: Small files
@@ -120,7 +120,7 @@ def run_java_client_tests(config):
         num_runs,
         output_dir=f"{config.get('hdfs_output_dir', '/Projects/test')}/test_hdfs_large/tests",
         num_files=config.get('num_files_large', 5),
-        size_kb=1024 * 1024  # 1GB
+        size_kb=int(config.get('size_gb', 1) * 1024 * 1024)
     )
 
     # Test 6: Small files
