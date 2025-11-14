@@ -395,11 +395,11 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_kb=1048576,
     print(f"\n=== Testing HDFS copyFromLocal: {num_files} files x {size_mb:.2f}MB ({parallel_writes} parallel) ===")
 
     # Step 1: Pre-create files on disk organized in subdirectories (NOT timed)
-    # Every 100 files go into a separate subdirectory
-    print(f"Pre-creating {num_files} files on local disk (100 files per subdirectory)...")
+    # Large files: 1 file per subdirectory, Small files: 100 files per subdirectory
+    files_per_subdir = 1 if size_kb >= 100 * 1024 else 100
+    print(f"Pre-creating {num_files} files on local disk ({files_per_subdir} file(s) per subdirectory)...")
     os.makedirs(temp_dir, exist_ok=True)
 
-    files_per_subdir = 100
     subdirs = []
     file_paths = []
 
