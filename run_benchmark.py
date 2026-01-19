@@ -19,20 +19,20 @@ def run_test_multiple_times(test_func, num_runs, **kwargs):
         if num_runs > 1:
             print(f"  [Run {run + 1}/{num_runs}]")
         result = test_func(**kwargs)
-        all_write_speeds.append(result['write_speed_mbs'])
-        all_read_speeds.append(result['read_speed_mbs'])
+        all_write_speeds.append(result['write_files_per_sec'])
+        all_read_speeds.append(result['read_files_per_sec'])
 
     # Calculate averages
     avg_write = sum(all_write_speeds) / len(all_write_speeds)
     avg_read = sum(all_read_speeds) / len(all_read_speeds)
 
     if num_runs > 1:
-        print(f"  Average write speed: {avg_write:.2f} MB/s")
-        print(f"  Average read speed: {avg_read:.2f} MB/s")
+        print(f"  Average write speed: {avg_write:.2f} files/sec")
+        print(f"  Average read speed: {avg_read:.2f} files/sec")
 
     return {
-        'write_speed_mbs': avg_write,
-        'read_speed_mbs': avg_read,
+        'write_files_per_sec': avg_write,
+        'read_files_per_sec': avg_read,
         'all_write_speeds': all_write_speeds,
         'all_read_speeds': all_read_speeds
     }
@@ -150,7 +150,7 @@ def write_results_to_csv(results):
     with open('write_speeds.csv', 'w', newline='') as f:
         writer = csv.writer(f)
         # Create header with run columns
-        header = ['Experiment'] + [f'Run {i+1} (MB/s)' for i in range(num_runs)]
+        header = ['Experiment'] + [f'Run {i+1} (files/sec)' for i in range(num_runs)]
         writer.writerow(header)
 
         for test_name, speeds in results.items():
@@ -163,7 +163,7 @@ def write_results_to_csv(results):
     with open('read_speeds.csv', 'w', newline='') as f:
         writer = csv.writer(f)
         # Create header with run columns
-        header = ['Experiment'] + [f'Run {i+1} (MB/s)' for i in range(num_runs)]
+        header = ['Experiment'] + [f'Run {i+1} (files/sec)' for i in range(num_runs)]
         writer.writerow(header)
 
         for test_name, speeds in results.items():
@@ -182,12 +182,12 @@ def print_results_summary(results):
     print("\n" + "=" * 80)
     print("BENCHMARK RESULTS SUMMARY")
     print("=" * 80)
-    print(f"{'Test Name':<35} {'Write Speed (MB/s)':<20} {'Read Speed (MB/s)':<20}")
+    print(f"{'Test Name':<35} {'Write (files/sec)':<20} {'Read (files/sec)':<20}")
     print("-" * 80)
 
     for test_name, speeds in results.items():
-        write_speed = speeds['write_speed_mbs']
-        read_speed = speeds['read_speed_mbs']
+        write_speed = speeds['write_files_per_sec']
+        read_speed = speeds['read_files_per_sec']
         print(f"{test_name:<35} {write_speed:>18.2f}  {read_speed:>18.2f}")
 
     print("=" * 80)
