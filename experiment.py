@@ -223,8 +223,8 @@ def test_files_s3(bucket_name='test-bucket', num_files=10, size_kb=1048576, para
         pass
 
     return {
-        'write_speed_mbs': speed_mbs,
-        'read_speed_mbs': read_speed_mbs
+        'write_files_per_sec': num_files / (total_mb / speed_mbs),
+        'read_files_per_sec': num_files / (total_mb / read_speed_mbs)
     }
 
 
@@ -329,8 +329,8 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
         pass
 
     return {
-        'write_speed_mbs': speed * 1024,
-        'read_speed_mbs': read_speed * 1024
+        'write_files_per_sec': num_files / (total_gb / speed),
+        'read_files_per_sec': num_files / (total_gb / read_speed)
     }
 
 
@@ -506,8 +506,8 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_kb=1048576,
         pass
 
     return {
-        'write_speed_mbs': speed_mbs,
-        'read_speed_mbs': read_speed_mbs
+        'write_files_per_sec': num_files / (total_mb / speed_mbs),
+        'read_files_per_sec': num_files / (total_mb / read_speed_mbs)
     }
 
 
@@ -627,8 +627,8 @@ def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=
         pass
 
     return {
-        'write_speed_mbs': speed_mbs,
-        'read_speed_mbs': read_speed_mbs
+        'write_files_per_sec': total_files / (total_mb / speed_mbs),
+        'read_files_per_sec': total_files / (total_mb / read_speed_mbs)
     }
 
 
@@ -660,13 +660,13 @@ if __name__ == '__main__':
     print("\n" + "=" * 80)
     print("BENCHMARK RESULTS SUMMARY")
     print("=" * 80)
-    print(f"{'Test Name':<35} {'Write Speed (MB/s)':<20} {'Read Speed (MB/s)':<20}")
+    print(f"{'Test Name':<35} {'Write (files/sec)':<20} {'Read (files/sec)':<20}")
     print("-" * 80)
 
     for test_name, speeds in results.items():
-        write_speed = speeds['write_speed_mbs']
-        read_speed = speeds['read_speed_mbs']
-        print(f"{test_name:<35} {write_speed:>18.2f}  {read_speed:>18.2f}")
+        write_fps = speeds['write_files_per_sec']
+        read_fps = speeds['read_files_per_sec']
+        print(f"{test_name:<35} {write_fps:>18.2f}  {read_fps:>18.2f}")
 
     print("=" * 80)
 
