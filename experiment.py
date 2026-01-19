@@ -224,7 +224,9 @@ def test_files_s3(bucket_name='test-bucket', num_files=10, size_kb=1048576, para
 
     return {
         'write_files_per_sec': num_files / write_elapsed if write_elapsed > 0 else 0,
-        'read_files_per_sec': num_files / read_elapsed if read_elapsed > 0 else 0
+        'read_files_per_sec': num_files / read_elapsed if read_elapsed > 0 else 0,
+        'write_speed_mbs': speed_mbs,
+        'read_speed_mbs': read_speed_mbs
     }
 
 
@@ -330,7 +332,9 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
 
     return {
         'write_files_per_sec': num_files / write_elapsed if write_elapsed > 0 else 0,
-        'read_files_per_sec': num_files / read_elapsed if read_elapsed > 0 else 0
+        'read_files_per_sec': num_files / read_elapsed if read_elapsed > 0 else 0,
+        'write_speed_mbs': speed * 1024,
+        'read_speed_mbs': read_speed * 1024
     }
 
 
@@ -507,7 +511,9 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_kb=1048576,
 
     return {
         'write_files_per_sec': num_files / write_elapsed if write_elapsed > 0 else 0,
-        'read_files_per_sec': num_files / read_elapsed if read_elapsed > 0 else 0
+        'read_files_per_sec': num_files / read_elapsed if read_elapsed > 0 else 0,
+        'write_speed_mbs': speed_mbs,
+        'read_speed_mbs': read_speed_mbs
     }
 
 
@@ -628,7 +634,9 @@ def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=
 
     return {
         'write_files_per_sec': total_files / write_elapsed if write_elapsed > 0 else 0,
-        'read_files_per_sec': total_files / read_elapsed if read_elapsed > 0 else 0
+        'read_files_per_sec': total_files / read_elapsed if read_elapsed > 0 else 0,
+        'write_speed_mbs': speed_mbs,
+        'read_speed_mbs': read_speed_mbs
     }
 
 
@@ -657,16 +665,18 @@ if __name__ == '__main__':
     results['Test 6: Small files (HDFS)'] = test_files_local_copy(output_dir="/Projects/test/test_hdfs_small/tests", num_files=1000, size_kb=100, parallel_writes=32)
 
     # Print summary table
-    print("\n" + "=" * 80)
+    print("\n" + "=" * 110)
     print("BENCHMARK RESULTS SUMMARY")
-    print("=" * 80)
-    print(f"{'Test Name':<35} {'Write (files/sec)':<20} {'Read (files/sec)':<20}")
-    print("-" * 80)
+    print("=" * 110)
+    print(f"{'Test Name':<35} {'Write (files/s)':<15} {'Write (MB/s)':<15} {'Read (files/s)':<15} {'Read (MB/s)':<15}")
+    print("-" * 110)
 
     for test_name, speeds in results.items():
         write_fps = speeds['write_files_per_sec']
         read_fps = speeds['read_files_per_sec']
-        print(f"{test_name:<35} {write_fps:>18.2f}  {read_fps:>18.2f}")
+        write_mbs = speeds['write_speed_mbs']
+        read_mbs = speeds['read_speed_mbs']
+        print(f"{test_name:<35} {write_fps:>13.2f}  {write_mbs:>13.2f}  {read_fps:>13.2f}  {read_mbs:>13.2f}")
 
     print("=" * 80)
 
