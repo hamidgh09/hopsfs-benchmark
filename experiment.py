@@ -165,15 +165,15 @@ def test_files_s3(bucket_name='test-bucket', num_files=10, size_kb=1048576, para
         for future in as_completed(futures):
             future.result()
 
-    elapsed = time.time() - start_time
+    write_elapsed = time.time() - start_time
     total_mb = num_files * size_mb
     total_gb = total_mb / 1024
-    speed_mbs = total_mb / elapsed
+    speed_mbs = total_mb / write_elapsed if write_elapsed > 0 else 0
 
-    print(f"Upload time taken: {elapsed:.2f} seconds")
+    print(f"Upload time taken: {write_elapsed:.2f} seconds")
     print(f"Total data written: {total_gb:.2f} GB ({total_mb} MB)")
     print(f"Write speed: {speed_mbs / 1024:.2f} GB/s ({speed_mbs:.2f} MB/s)")
-    print(f"Files per second: {num_files / elapsed:.2f}")
+    print(f"Files per second: {num_files / write_elapsed:.2f}")
 
     # Step 4: Download files from S3 (TIMED)
     print("\nStarting download test...")
@@ -188,13 +188,13 @@ def test_files_s3(bucket_name='test-bucket', num_files=10, size_kb=1048576, para
         for future in as_completed(futures):
             future.result()
 
-    elapsed = time.time() - start_time
-    read_speed_mbs = total_mb / elapsed
+    read_elapsed = time.time() - start_time
+    read_speed_mbs = total_mb / read_elapsed if read_elapsed > 0 else 0
 
-    print(f"Download time taken: {elapsed:.2f} seconds")
+    print(f"Download time taken: {read_elapsed:.2f} seconds")
     print(f"Total data read: {total_gb:.2f} GB ({total_mb} MB)")
     print(f"Read speed: {read_speed_mbs / 1024:.2f} GB/s ({read_speed_mbs:.2f} MB/s)")
-    print(f"Files per second: {num_files / elapsed:.2f}")
+    print(f"Files per second: {num_files / read_elapsed:.2f}")
 
     # Step 5: Cleanup S3
     print("\nCleaning up S3...")
@@ -223,8 +223,8 @@ def test_files_s3(bucket_name='test-bucket', num_files=10, size_kb=1048576, para
         pass
 
     return {
-        'write_files_per_sec': num_files / (total_mb / speed_mbs),
-        'read_files_per_sec': num_files / (total_mb / read_speed_mbs)
+        'write_files_per_sec': num_files / write_elapsed if write_elapsed > 0 else 0,
+        'read_files_per_sec': num_files / read_elapsed if read_elapsed > 0 else 0
     }
 
 
@@ -270,11 +270,11 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
         for future in as_completed(futures):
             future.result()
 
-    elapsed = time.time() - start_time
+    write_elapsed = time.time() - start_time
     total_gb = num_files * size_gb
-    speed = total_gb / elapsed
+    speed = total_gb / write_elapsed if write_elapsed > 0 else 0
 
-    print(f"Write time taken: {elapsed:.2f} seconds")
+    print(f"Write time taken: {write_elapsed:.2f} seconds")
     print(f"Total data written: {total_gb} GB")
     print(f"Write speed: {speed:.2f} GB/s ({speed * 1024:.2f} MB/s)")
 
@@ -291,10 +291,10 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
         for future in as_completed(futures):
             future.result()
 
-    elapsed = time.time() - start_time
-    read_speed = total_gb / elapsed
+    read_elapsed = time.time() - start_time
+    read_speed = total_gb / read_elapsed if read_elapsed > 0 else 0
 
-    print(f"Read time taken: {elapsed:.2f} seconds")
+    print(f"Read time taken: {read_elapsed:.2f} seconds")
     print(f"Total data read: {total_gb} GB")
     print(f"Read speed: {read_speed:.2f} GB/s ({read_speed * 1024:.2f} MB/s)")
 
@@ -329,8 +329,8 @@ def test_large_files(output_dir='test_large', num_files=10, size_gb=1, temp_dir=
         pass
 
     return {
-        'write_files_per_sec': num_files / (total_gb / speed),
-        'read_files_per_sec': num_files / (total_gb / read_speed)
+        'write_files_per_sec': num_files / write_elapsed if write_elapsed > 0 else 0,
+        'read_files_per_sec': num_files / read_elapsed if read_elapsed > 0 else 0
     }
 
 
@@ -445,15 +445,15 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_kb=1048576,
 
     copy_dir_to_hdfs_with_threads(temp_dir, output_dir, parallel_writes)
 
-    elapsed = time.time() - start_time
+    write_elapsed = time.time() - start_time
     total_mb = num_files * size_mb
     total_gb = total_mb / 1024
-    speed_mbs = total_mb / elapsed
+    speed_mbs = total_mb / write_elapsed if write_elapsed > 0 else 0
 
-    print(f"Upload time taken: {elapsed:.2f} seconds")
+    print(f"Upload time taken: {write_elapsed:.2f} seconds")
     print(f"Total data written: {total_gb:.2f} GB ({total_mb} MB)")
     print(f"Write speed: {speed_mbs / 1024:.2f} GB/s ({speed_mbs:.2f} MB/s)")
-    print(f"Files per second: {num_files / elapsed:.2f}")
+    print(f"Files per second: {num_files / write_elapsed:.2f}")
 
     # Step 4: Copy files from HDFS to local using copyToLocal with -t flag (TIMED)
     print(f"\nStarting HDFS copyToLocal with -t {parallel_writes} (HDFS handles threading)...")
@@ -465,13 +465,13 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_kb=1048576,
 
     copy_dir_from_hdfs_with_threads(output_dir, download_dir, parallel_writes)
 
-    elapsed = time.time() - start_time
-    read_speed_mbs = total_mb / elapsed
+    read_elapsed = time.time() - start_time
+    read_speed_mbs = total_mb / read_elapsed if read_elapsed > 0 else 0
 
-    print(f"Download time taken: {elapsed:.2f} seconds")
+    print(f"Download time taken: {read_elapsed:.2f} seconds")
     print(f"Total data read: {total_gb:.2f} GB ({total_mb} MB)")
     print(f"Read speed: {read_speed_mbs / 1024:.2f} GB/s ({read_speed_mbs:.2f} MB/s)")
-    print(f"Files per second: {num_files / elapsed:.2f}")
+    print(f"Files per second: {num_files / read_elapsed:.2f}")
 
     # Step 5: Cleanup HDFS
     print("\nCleaning up HDFS...")
@@ -506,8 +506,8 @@ def test_files_local_copy(output_dir='test_hdfs', num_files=10, size_kb=1048576,
         pass
 
     return {
-        'write_files_per_sec': num_files / (total_mb / speed_mbs),
-        'read_files_per_sec': num_files / (total_mb / read_speed_mbs)
+        'write_files_per_sec': num_files / write_elapsed if write_elapsed > 0 else 0,
+        'read_files_per_sec': num_files / read_elapsed if read_elapsed > 0 else 0
     }
 
 
@@ -561,15 +561,15 @@ def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=
         for future in as_completed(futures):
             future.result()
 
-    elapsed = time.time() - start_time
+    write_elapsed = time.time() - start_time
     total_mb = total_files * size_mb
     total_gb = total_mb / 1024
-    speed_mbs = total_mb / elapsed
+    speed_mbs = total_mb / write_elapsed if write_elapsed > 0 else 0
 
-    print(f"Write time taken: {elapsed:.2f} seconds")
+    print(f"Write time taken: {write_elapsed:.2f} seconds")
     print(f"Total data written: {total_mb} MB ({total_gb:.2f} GB)")
     print(f"Write speed: {speed_mbs / 1024:.2f} GB/s ({speed_mbs:.2f} MB/s)")
-    print(f"Files per second: {total_files / elapsed:.2f}")
+    print(f"Files per second: {total_files / write_elapsed:.2f}")
 
     # Step 4: Read files in parallel (TIMED)
     print("\nStarting read test...")
@@ -585,13 +585,13 @@ def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=
         for future in as_completed(futures):
             future.result()
 
-    elapsed = time.time() - start_time
-    read_speed_mbs = total_mb / elapsed
+    read_elapsed = time.time() - start_time
+    read_speed_mbs = total_mb / read_elapsed if read_elapsed > 0 else 0
 
-    print(f"Read time taken: {elapsed:.2f} seconds")
+    print(f"Read time taken: {read_elapsed:.2f} seconds")
     print(f"Total data read: {total_mb} MB ({total_gb:.2f} GB)")
     print(f"Read speed: {read_speed_mbs / 1024:.2f} GB/s ({read_speed_mbs:.2f} MB/s)")
-    print(f"Files per second: {total_files / elapsed:.2f}")
+    print(f"Files per second: {total_files / read_elapsed:.2f}")
 
     # Step 5: Cleanup target files and directories
     print("\nCleaning up target files...")
@@ -627,8 +627,8 @@ def test_small_files(output_dir='test_small', total_files=5000, parallel_writes=
         pass
 
     return {
-        'write_files_per_sec': total_files / (total_mb / speed_mbs),
-        'read_files_per_sec': total_files / (total_mb / read_speed_mbs)
+        'write_files_per_sec': total_files / write_elapsed if write_elapsed > 0 else 0,
+        'read_files_per_sec': total_files / read_elapsed if read_elapsed > 0 else 0
     }
 
 
